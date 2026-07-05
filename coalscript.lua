@@ -93,9 +93,11 @@ local function refreshPlayerList()
     end
 end
 
+-- Aim Logic
 runService.RenderStepped:Connect(function()
     if isAiming and targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("Head") then
-        camera.CFrame = camera.CFrame:Lerp(CFrame.lookAt(camera.CFrame.Position, targetPlayer.Character.Head.Position), 0.6)
+        -- Установлено значение 1 (мгновенное наведение)
+        camera.CFrame = camera.CFrame:Lerp(CFrame.lookAt(camera.CFrame.Position, targetPlayer.Character.Head.Position), 1)
     end
 end)
 
