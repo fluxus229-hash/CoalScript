@@ -10,6 +10,7 @@ local ESPEnabled = false
 local TracersEnabled = false
 local NamesEnabled = false
 local FullbrightEnabled = false
+local SpinEnabled = false
 
 -- Main Tab States
 local WalkSpeedValue = 16
@@ -750,6 +751,10 @@ createToggle(VisualsPage, "Fullbright (Без темноты)", false, function(
     end
 end)
 
+createToggle(VisualsPage, "Spin (Крутиться 360)", false, function(v)
+    SpinEnabled = v
+end)
+
 -- POPULATE TAB: Settings
 local function updateHudVisibility()
     HudFrame.Visible = ShowFPS or ShowPing or ShowCPS
@@ -794,7 +799,7 @@ createButton(SettingsPage, "Шрифт: GothamBold", function() updateFont(Enum.
 createButton(SettingsPage, "Шрифт: Code", function() updateFont(Enum.Font.Code) end)
 createButton(SettingsPage, "Шрифт: Roboto", function() updateFont(Enum.Font.Roboto) end)
 
--- CPS Click Event Tracking
+-- CPS Click Tracking
 UserInputService.InputBegan:Connect(function(input, gpe)
     if not gpe and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
         CpsCounter = CpsCounter + 1
@@ -923,9 +928,10 @@ RunService.Stepped:Connect(function()
     end
 end)
 
--- Main Render Loop (Fly, Stats, Visuals)
+-- Main Render Loop (Fly, Spin, Stats, Visuals)
 local flyBV = nil
 local flyBG = nil
+local spinAngle = 0
 local lastTime = tick()
 local frameCount = 0
 
@@ -933,9 +939,7 @@ RunService.RenderStepped:Connect(function()
     -- Calculate Stats HUD
     frameCount = frameCount + 1
     if tick() - lastTime >= 1 then
-        if ShowFPS then
-            FpsLabel.Text = "FPS: " .. frameCount
-        end
+        if ShowFPS then FpsLabel.Text = "FPS: " .. frameCount end
         if ShowPing then
             local ping = math.floor(StatsService.Network.ServerStatsItem["Data Ping"]:GetValue())
             PingLabel.Text = "PING: " .. ping .. " ms"
@@ -943,9 +947,7 @@ RunService.RenderStepped:Connect(function()
         frameCount = 0
         lastTime = tick()
     end
-    if ShowCPS then
-        CpsLabel.Text = "CPS: " .. CpsCounter
-    end
+    if ShowCPS then CpsLabel.Text = "CPS: " .. CpsCounter end
 
     -- Speed & Jump Power
     if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
@@ -969,7 +971,14 @@ RunService.RenderStepped:Connect(function()
         Lighting.Brightness = 2
     end
 
-    -- Visuals Render Loop
+    -- Spin Bot Logic
+    if SpinEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        local hrp = LocalPlayer.Character.HumanoidRootPart
+        spinAngle = (spinAngle + 45) % 360
+        hrp.CFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, math.rad(spinAngle), 0)
+    end
+
+    -- Visuals Render Loop (Tracers & Names)
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
             local char = player.Character
@@ -990,7 +999,7 @@ RunService.RenderStepped:Connect(function()
                 highlight:Destroy()
             end
 
-            -- Tracers
+            -- Fixed Tracers
             local tracer = char:FindFirstChild("CoalTracer")
             if TracersEnabled and hrp then
                 local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
@@ -998,7 +1007,7 @@ RunService.RenderStepped:Connect(function()
                     if not tracer then
                         tracer = Instance.new("Frame")
                         tracer.Name = "CoalTracer"
-                        tracer.AnchorPoint = Vector2.new(0.5, 0.5)
+                        tracer.AnchorPoint = Vector2.new(0.5, 0)
                         tracer.BackgroundColor3 = ThemeColor
                         tracer.BorderSizePixel = 0
                         tracer.Parent = ScreenGui
@@ -1009,7 +1018,7 @@ RunService.RenderStepped:Connect(function()
                     local angle = math.atan2(endPos.Y - startPos.Y, endPos.X - startPos.X)
 
                     tracer.Size = UDim2.new(0, distance, 0, 1.5)
-                    tracer.Position = UDim2.new(0, (startPos.X + endPos.X) / 2, 0, (startPos.Y + endPos.Y) / 2)
+                    tracer.Position = UDim2.new(0, startPos.X, 0, startPos.Y)
                     tracer.Rotation = math.deg(angle)
                     tracer.Visible = true
                 elseif tracer then
@@ -1054,7 +1063,7 @@ RunService.RenderStepped:Connect(function()
         end
     end
 
-    -- Fly Logic
+    -- Universal Fly Logic (PC + Mobile support via MoveDirection & UserInput)
     if FlyEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
         local hrp = LocalPlayer.Character.HumanoidRootPart
         local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
@@ -1079,12 +1088,19 @@ RunService.RenderStepped:Connect(function()
         flyBG.CFrame = Camera.CFrame
 
         local moveDir = Vector3.new(0, 0, 0)
+        
+        -- Keyboard input (PC)
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + Camera.CFrame.LookVector end
         if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - Camera.CFrame.LookVector end
         if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - Camera.CFrame.RightVector end
         if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + Camera.CFrame.RightVector end
         if UserInputService:IsKeyDown(Enum.KeyCode.Space) or UserInputService:IsKeyDown(Enum.KeyCode.E) then moveDir = moveDir + Vector3.new(0, 1, 0) end
         if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.Q) then moveDir = moveDir - Vector3.new(0, 1, 0) end
+
+        -- Mobile joystick / movement support
+        if hum and hum.MoveDirection.Magnitude > 0 then
+            moveDir = moveDir + (Camera.CFrame:VectorToWorldSpace(Vector3.new(hum.MoveDirection.X, 0, hum.MoveDirection.Z)).Unit)
+        end
 
         if moveDir.Magnitude > 0 then
             flyBV.Velocity = moveDir.Unit * FlySpeedValue
