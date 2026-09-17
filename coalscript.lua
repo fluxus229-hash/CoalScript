@@ -14,6 +14,9 @@ local FlyEnabled = false
 local FlySpeedValue = 50
 local InfJumpEnabled = false
 
+-- Teleport Tab States
+local SelectedTargetPlayer = nil
+
 -- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -214,6 +217,7 @@ local function createPage()
 end
 
 local MainPage = createPage()
+local TeleportPage = createPage()
 local CombatPage = createPage()
 local VisualsPage = createPage()
 MainPage.Visible = true
@@ -235,6 +239,7 @@ local function createTabBtn(text, page)
 
     btn.MouseButton1Click:Connect(function()
         MainPage.Visible = false
+        TeleportPage.Visible = false
         CombatPage.Visible = false
         VisualsPage.Visible = false
         page.Visible = true
@@ -252,6 +257,7 @@ local function createTabBtn(text, page)
 end
 
 local MainTabBtn = createTabBtn("Main", MainPage)
+local TeleportTabBtn = createTabBtn("Teleport", TeleportPage)
 local CombatTabBtn = createTabBtn("Combat", CombatPage)
 local VisualsTabBtn = createTabBtn("Visuals", VisualsPage)
 
@@ -410,6 +416,24 @@ local function createSlider(page, text, min, max, default, callback)
     end)
 end
 
+local function createButton(page, text, callback)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 35)
+    btn.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 13
+    btn.Font = Enum.Font.GothamBold
+    btn.Parent = page
+
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 6)
+    btnCorner.Parent = btn
+
+    btn.MouseButton1Click:Connect(callback)
+    return btn
+end
+
 -- POPULATE TAB: Main
 createSlider(MainPage, "Скорость бега", 1, 300, WalkSpeedValue, function(v)
     WalkSpeedValue = v
@@ -440,6 +464,129 @@ end)
 
 createSlider(MainPage, "Скорость полета", 1, 300, FlySpeedValue, function(v)
     FlySpeedValue = v
+end)
+
+-- POPULATE TAB: Teleport
+local RefreshBtn = createButton(TeleportPage, "Обновить список игроков", function() end)
+
+local PlayerListContainer = Instance.new("Frame")
+PlayerListContainer.Size = UDim2.new(1, 0, 0, 120)
+PlayerListContainer.BackgroundColor3 = Color3.fromRGB(25, 28, 40)
+PlayerListContainer.Parent = TeleportPage
+
+local PlrListCorner = Instance.new("UICorner")
+PlrListCorner.CornerRadius = UDim.new(0, 6)
+PlrListCorner.Parent = PlayerListContainer
+
+local PlrScroll = Instance.new("ScrollingFrame")
+PlrScroll.Size = UDim2.new(1, -10, 1, -10)
+PlrScroll.Position = UDim2.new(0, 5, 0, 5)
+PlrScroll.BackgroundTransparency = 1
+PlrScroll.BorderSizePixel = 0
+PlrScroll.ScrollBarThickness = 4
+PlrScroll.ScrollBarImageColor3 = Color3.fromRGB(0, 170, 255)
+PlrScroll.Parent = PlayerListContainer
+
+local PlrLayout = Instance.new("UIListLayout")
+PlrLayout.SortOrder = Enum.SortOrder.LayoutOrder
+PlrLayout.Padding = UDim.new(0, 5)
+PlrLayout.Parent = PlrScroll
+
+PlrLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    PlrScroll.CanvasSize = UDim2.new(0, 0, 0, PlrLayout.AbsoluteContentSize.Y + 5)
+end)
+
+local SelectedPlrLabel = Instance.new("TextLabel")
+SelectedPlrLabel.Size = UDim2.new(1, 0, 0, 20)
+SelectedPlrLabel.BackgroundTransparency = 1
+SelectedPlrLabel.Text = "Выбран: Никто"
+SelectedPlrLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+SelectedPlrLabel.TextSize = 13
+SelectedPlrLabel.Font = Enum.Font.GothamMedium
+SelectedPlrLabel.TextXAlignment = Enum.TextXAlignment.Left
+SelectedPlrLabel.Parent = TeleportPage
+
+local function refreshPlayers()
+    for _, child in ipairs(PlrScroll:GetChildren()) do
+        if child:IsA("TextButton") then
+            child:Destroy()
+        end
+    end
+    
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local pBtn = Instance.new("TextButton")
+            pBtn.Size = UDim2.new(1, -5, 0, 28)
+            pBtn.BackgroundColor3 = (SelectedTargetPlayer == plr) and Color3.fromRGB(0, 170, 255) or Color3.fromRGB(35, 40, 55)
+            pBtn.Text = plr.DisplayName .. " (@" .. plr.Name .. ")"
+            pBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            pBtn.TextSize = 12
+            pBtn.Font = Enum.Font.Gotham
+            pBtn.Parent = PlrScroll
+
+            local pCorner = Instance.new("UICorner")
+            pCorner.CornerRadius = UDim.new(0, 4)
+            pCorner.Parent = pBtn
+
+            pBtn.MouseButton1Click:Connect(function()
+                SelectedTargetPlayer = plr
+                SelectedPlrLabel.Text = "Выбран: " .. plr.Name
+                for _, b in ipairs(PlrScroll:GetChildren()) do
+                    if b:IsA("TextButton") then
+                        b.BackgroundColor3 = Color3.fromRGB(35, 40, 55)
+                    end
+                end
+                pBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+            end)
+        end
+    end
+end
+
+RefreshBtn.MouseButton1Click:Connect(refreshPlayers)
+refreshPlayers()
+
+-- Fast TP Button
+createButton(TeleportPage, "Fast TP (Мгновенно)", function()
+    if SelectedTargetPlayer and SelectedTargetPlayer.Character and SelectedTargetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            LocalPlayer.Character.HumanoidRootPart.CFrame = SelectedTargetPlayer.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, 3)
+        end
+    end
+end)
+
+-- Slow TP Button
+createButton(TeleportPage, "Slow TP (Быстрый полет)", function()
+    if SelectedTargetPlayer and SelectedTargetPlayer.Character and SelectedTargetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local hrp = LocalPlayer.Character.HumanoidRootPart
+            local targetHrp = SelectedTargetPlayer.Character.HumanoidRootPart
+            local distance = (targetHrp.Position - hrp.Position).Magnitude
+            local flyTime = math.clamp(distance / 200, 0.5, 5) -- Авто-расчет времени от дистанции
+
+            -- Игнорирование коллизий при полете
+            local conn
+            conn = RunService.Stepped:Connect(function()
+                if LocalPlayer.Character then
+                    for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = false
+                        end
+                    end
+                end
+            end)
+
+            local tween = TweenService:Create(
+                hrp,
+                TweenInfo.new(flyTime, Enum.EasingStyle.Linear),
+                {CFrame = targetHrp.CFrame * CFrame.new(0, 0, 3)}
+            )
+            
+            tween:Play()
+            tween.Completed:Connect(function()
+                if conn then conn:Disconnect() end
+            end)
+        end
+    end
 end)
 
 -- POPULATE TAB: Combat
@@ -579,11 +726,21 @@ local function getClosestPlayer()
     return closest
 end
 
--- Fly Objects
+-- Improved Noclip Event Connection
+RunService.Stepped:Connect(function()
+    if NoclipEnabled and LocalPlayer.Character then
+        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end
+end)
+
+-- Improved Fly Implementation
 local flyBV = nil
 local flyBG = nil
 
--- Main Loops
 RunService.RenderStepped:Connect(function()
     -- Speed & Jump Power
     if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
@@ -621,34 +778,19 @@ RunService.RenderStepped:Connect(function()
         end
     end
 
-    -- Noclip Logic
-    if NoclipEnabled and LocalPlayer.Character then
-        local char = LocalPlayer.Character
-        local rayOrigin = char.PrimaryPart and char.PrimaryPart.Position or Vector3.new(0,0,0)
-        
-        local ray = Ray.new(rayOrigin, Vector3.new(0, -3.5, 0))
-        local floorPart = workspace:FindPartOnWithIgnoreList(ray, {char})
-
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                if FlyEnabled then
-                    part.CanCollide = false
-                elseif floorPart and (part.Name == "HumanoidRootPart" or part.Name == "LowerTorso") then
-                    part.CanCollide = true
-                else
-                    part.CanCollide = false
-                end
-            end
-        end
-    end
-
-    -- Fly Logic (Keyboard WASD + Space/Shift + Camera Dir)
+    -- Fly Logic
     if FlyEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
         local hrp = LocalPlayer.Character.HumanoidRootPart
+        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
         
+        if hum then
+            hum:ChangeState(Enum.HumanoidStateType.Swimming)
+        end
+
         if not flyBV then
             flyBV = Instance.new("BodyVelocity")
             flyBV.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+            flyBV.Velocity = Vector3.new(0, 0, 0)
             flyBV.Parent = hrp
         end
 
@@ -656,6 +798,7 @@ RunService.RenderStepped:Connect(function()
             flyBG = Instance.new("BodyGyro")
             flyBG.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
             flyBG.P = 9e4
+            flyBG.CFrame = Camera.CFrame
             flyBG.Parent = hrp
         end
 
