@@ -3,7 +3,6 @@ local AimbotEnabled = false
 local FovEnabled = false
 local FovRadius = 150
 local WallCheckEnabled = false
-local AimBtnGuiVisible = false
 
 -- Visuals Tab States
 local ESPEnabled = false
@@ -80,31 +79,6 @@ local FovStroke = Instance.new("UIStroke")
 FovStroke.Color = Color3.fromRGB(255, 255, 255)
 FovStroke.Thickness = 2
 FovStroke.Parent = FovFrame
-
--- Floating AIM Button
-local QuickAimBtn = Instance.new("TextButton")
-QuickAimBtn.Name = "QuickAimButton"
-QuickAimBtn.Size = UDim2.new(0, 55, 0, 55)
-QuickAimBtn.Position = UDim2.new(0.85, 0, 0.35, 0)
-QuickAimBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
-QuickAimBtn.Text = "AIM"
-QuickAimBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-QuickAimBtn.TextSize = 15
-QuickAimBtn.Font = CurrentFont
-QuickAimBtn.Active = true
-QuickAimBtn.Draggable = true
-QuickAimBtn.Visible = false
-QuickAimBtn.Parent = ScreenGui
-
-local QuickAimCorner = Instance.new("UICorner")
-QuickAimCorner.CornerRadius = UDim.new(0, 14)
-QuickAimCorner.Parent = QuickAimBtn
-
-local QuickAimStroke = Instance.new("UIStroke")
-QuickAimStroke.Color = Color3.fromRGB(255, 255, 255)
-QuickAimStroke.Transparency = 0.5
-QuickAimStroke.Thickness = 2
-QuickAimStroke.Parent = QuickAimBtn
 
 -- Mini Open Button
 local MiniSquare = Instance.new("TextButton")
@@ -375,7 +349,6 @@ local function updateFont(newFont)
     CurrentFont = newFont
     TitleText.Font = newFont
     CloseBtn.Font = newFont
-    QuickAimBtn.Font = newFont
     MiniSquare.Font = newFont
     FpsLabel.Font = newFont
     PingLabel.Font = newFont
@@ -719,13 +692,8 @@ createSlider(CombatPage, "Радиус FOV", 50, 500, FovRadius, function(v)
     FovFrame.Size = UDim2.new(0, v * 2, 0, v * 2)
 end)
 
-createToggle(CombatPage, "Проверка стен (WallCheck)", false, function(v)
+createToggle(CombatPage, "Проверка стен (WallCheck)", true, function(v)
     WallCheckEnabled = v
-end)
-
-createToggle(CombatPage, "Кнопка AIM на экране", false, function(v)
-    AimBtnGuiVisible = v
-    QuickAimBtn.Visible = v
 end)
 
 -- POPULATE TAB: Visuals
@@ -876,39 +844,49 @@ UserInputService.JumpRequest:Connect(function()
     end
 end)
 
--- Aimbot Mechanics
-local isAiming = false
-
-QuickAimBtn.MouseButton1Down:Connect(function() isAiming = true end)
-QuickAimBtn.MouseButton1Up:Connect(function() isAiming = false end)
-QuickAimBtn.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        isAiming = false
-    end
-end)
-
+-- Strict WallCheck and 360-Degree Aimbot Mechanics
 local function isVisible(targetPart)
     if not WallCheckEnabled then return true end
     local origin = Camera.CFrame.Position
-    local ray = Ray.new(origin, targetPart.Position - origin)
-    local hit = workspace:FindPartOnWithIgnoreList(ray, {LocalPlayer.Character})
-    return hit and hit:IsDescendantOf(targetPart.Parent)
+    local direction = targetPart.Position - origin
+    
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, Camera}
+    raycastParams.IgnoreWater = true
+    
+    local result = workspace:Raycast(origin, direction, raycastParams)
+    if result then
+        -- Проверяем, попал ли луч в персонажа целевого игрока или его часть
+        if result.Instance:IsDescendantOf(targetPart.Parent) then
+            return true
+        else
+            return false -- Мешает стена или блок
+        end
+    end
+    return true
 end
 
-local function getClosestPlayer()
+local function getClosestPlayer360()
     local closest = nil
-    local shortestDistance = FovRadius
+    local shortestDistance = math.huge
+    local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+
+    if not myHrp then return nil end
 
     for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
-            local pos, onScreen = Camera:WorldToViewportPoint(player.Character.HumanoidRootPart.Position)
-            if onScreen then
-                local mousePos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-                local dist = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
-                if dist < shortestDistance then
-                    if isVisible(player.Character.HumanoidRootPart) then
-                        shortestDistance = dist
-                        closest = player.Character.HumanoidRootPart
+        if player ~= LocalPlayer and player.Character then
+            local char = player.Character
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local hum = char:FindFirstChildOfClass("Humanoid")
+
+            if hrp and hum and hum.Health > 0 then
+                -- Проверка видимости (стены)
+                if isVisible(hrp) then
+                    local distance = (hrp.Position - myHrp.Position).Magnitude
+                    if distance < shortestDistance then
+                        shortestDistance = distance
+                        closest = hrp
                     end
                 end
             end
@@ -928,7 +906,7 @@ RunService.Stepped:Connect(function()
     end
 end)
 
--- Main Render Loop (Fly, Spin, Stats, Visuals)
+-- Main Render Loop (Fly, Spin, Aimbot, Stats, Visuals)
 local flyBV = nil
 local flyBG = nil
 local spinAngle = 0
@@ -956,9 +934,9 @@ RunService.RenderStepped:Connect(function()
         LocalPlayer.Character.Humanoid.UseJumpPower = true
     end
 
-    -- Aimbot
-    if AimbotEnabled and isAiming then
-        local target = getClosestPlayer()
+    -- Instant 360-Degree Aimbot with WallCheck
+    if AimbotEnabled then
+        local target = getClosestPlayer360()
         if target then
             Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Position)
         end
@@ -1063,7 +1041,7 @@ RunService.RenderStepped:Connect(function()
         end
     end
 
-    -- Universal Fly Logic (PC + Mobile support via MoveDirection & UserInput)
+    -- Universal Fly Logic (PC + Mobile support)
     if FlyEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
         local hrp = LocalPlayer.Character.HumanoidRootPart
         local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
@@ -1097,7 +1075,7 @@ RunService.RenderStepped:Connect(function()
         if UserInputService:IsKeyDown(Enum.KeyCode.Space) or UserInputService:IsKeyDown(Enum.KeyCode.E) then moveDir = moveDir + Vector3.new(0, 1, 0) end
         if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.Q) then moveDir = moveDir - Vector3.new(0, 1, 0) end
 
-        -- Mobile joystick / movement support
+        -- Mobile joystick support
         if hum and hum.MoveDirection.Magnitude > 0 then
             moveDir = moveDir + (Camera.CFrame:VectorToWorldSpace(Vector3.new(hum.MoveDirection.X, 0, hum.MoveDirection.Z)).Unit)
         end
