@@ -1,4 +1,4 @@
--- Modern GUI: Coal Hub
+-- // Modern GUI: Coal Hub (Updated)
 local AimbotEnabled = false
 local FovEnabled = false
 local FovRadius = 150
@@ -12,7 +12,9 @@ local FullbrightEnabled = false
 local SpinEnabled = false
 
 -- Main Tab States
+local WalkSpeedEnabled = false
 local WalkSpeedValue = 16
+local JumpPowerEnabled = false
 local JumpPowerValue = 50
 local NoclipEnabled = false
 local FlyEnabled = false
@@ -526,19 +528,20 @@ local function createButton(page, text, callback)
 end
 
 -- POPULATE TAB: Main
+createToggle(MainPage, "Включить скорость бега", false, function(v)
+    WalkSpeedEnabled = v
+end)
+
 createSlider(MainPage, "Скорость бега", 1, 300, WalkSpeedValue, function(v)
     WalkSpeedValue = v
-    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-        LocalPlayer.Character.Humanoid.WalkSpeed = v
-    end
+end)
+
+createToggle(MainPage, "Включить высоту прыжка", false, function(v)
+    JumpPowerEnabled = v
 end)
 
 createSlider(MainPage, "Высота прыжка", 1, 300, JumpPowerValue, function(v)
     JumpPowerValue = v
-    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-        LocalPlayer.Character.Humanoid.JumpPower = v
-        LocalPlayer.Character.Humanoid.UseJumpPower = true
-    end
 end)
 
 createToggle(MainPage, "Бесконечный прыжок", false, function(v)
@@ -844,7 +847,7 @@ UserInputService.JumpRequest:Connect(function()
     end
 end)
 
--- Strict WallCheck and 360-Degree Aimbot Mechanics
+-- Strict WallCheck and Aimbot Mechanics
 local function isVisible(targetPart)
     if not WallCheckEnabled then return true end
     local origin = Camera.CFrame.Position
@@ -857,22 +860,19 @@ local function isVisible(targetPart)
     
     local result = workspace:Raycast(origin, direction, raycastParams)
     if result then
-        -- Проверяем, попал ли луч в персонажа целевого игрока или его часть
         if result.Instance:IsDescendantOf(targetPart.Parent) then
             return true
         else
-            return false -- Мешает стена или блок
+            return false
         end
     end
     return true
 end
 
-local function getClosestPlayer360()
+local function getClosestPlayerTarget()
     local closest = nil
     local shortestDistance = math.huge
-    local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-
-    if not myHrp then return nil end
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
 
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
@@ -881,12 +881,26 @@ local function getClosestPlayer360()
             local hum = char:FindFirstChildOfClass("Humanoid")
 
             if hrp and hum and hum.Health > 0 then
-                -- Проверка видимости (стены)
-                if isVisible(hrp) then
-                    local distance = (hrp.Position - myHrp.Position).Magnitude
-                    if distance < shortestDistance then
-                        shortestDistance = distance
-                        closest = hrp
+                local screenPoint, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+                
+                if onScreen then
+                    local mouseVector = Vector2.new(screenPoint.X, screenPoint.Y)
+                    local distanceToCenter = (mouseVector - screenCenter).Magnitude
+                    
+                    -- Проверка по кругу FOV (если включен)
+                    local inRange = true
+                    if FovEnabled then
+                        inRange = (distanceToCenter <= FovRadius)
+                    end
+                    
+                    if inRange then
+                        if isVisible(hrp) then
+                            local distanceToPlayer = (hrp.Position - Camera.CFrame.Position).Magnitude
+                            if distanceToPlayer < shortestDistance then
+                                shortestDistance = distanceToPlayer
+                                closest = hrp
+                            end
+                        end
                     end
                 end
             end
@@ -927,16 +941,27 @@ RunService.RenderStepped:Connect(function()
     end
     if ShowCPS then CpsLabel.Text = "CPS: " .. CpsCounter end
 
-    -- Speed & Jump Power
+    -- Speed & Jump Power Control
     if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-        LocalPlayer.Character.Humanoid.WalkSpeed = WalkSpeedValue
-        LocalPlayer.Character.Humanoid.JumpPower = JumpPowerValue
-        LocalPlayer.Character.Humanoid.UseJumpPower = true
+        local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
+        
+        if WalkSpeedEnabled then
+            humanoid.WalkSpeed = WalkSpeedValue
+        else
+            humanoid.WalkSpeed = 16
+        end
+
+        if JumpPowerEnabled then
+            humanoid.JumpPower = JumpPowerValue
+            humanoid.UseJumpPower = true
+        else
+            humanoid.JumpPower = 50
+        end
     end
 
-    -- Instant 360-Degree Aimbot with WallCheck
+    -- Aimbot Logic with FOV and WallCheck
     if AimbotEnabled then
-        local target = getClosestPlayer360()
+        local target = getClosestPlayerTarget()
         if target then
             Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Position)
         end
@@ -977,7 +1002,7 @@ RunService.RenderStepped:Connect(function()
                 highlight:Destroy()
             end
 
-            -- Fixed Tracers
+            -- Tracers
             local tracer = char:FindFirstChild("CoalTracer")
             if TracersEnabled and hrp then
                 local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
@@ -1067,7 +1092,6 @@ RunService.RenderStepped:Connect(function()
 
         local moveDir = Vector3.new(0, 0, 0)
         
-        -- Keyboard input (PC)
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + Camera.CFrame.LookVector end
         if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - Camera.CFrame.LookVector end
         if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - Camera.CFrame.RightVector end
@@ -1075,7 +1099,6 @@ RunService.RenderStepped:Connect(function()
         if UserInputService:IsKeyDown(Enum.KeyCode.Space) or UserInputService:IsKeyDown(Enum.KeyCode.E) then moveDir = moveDir + Vector3.new(0, 1, 0) end
         if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.Q) then moveDir = moveDir - Vector3.new(0, 1, 0) end
 
-        -- Mobile joystick support
         if hum and hum.MoveDirection.Magnitude > 0 then
             moveDir = moveDir + (Camera.CFrame:VectorToWorldSpace(Vector3.new(hum.MoveDirection.X, 0, hum.MoveDirection.Z)).Unit)
         end
